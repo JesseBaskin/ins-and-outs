@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Chesterfield Chargers — Play Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+    /* small helpers so we can reuse styles in JS-created buttons */
+    .btn-base { padding: .5rem 1rem; border-radius: .5rem; font-weight: 600; box-shadow: 0 2px 6px rgba(0,0,0,0.12); transition: transform .08s ease; }
+    .btn-base:active { transform: translateY(1px); }
+    .card { padding: .75rem; border-radius: .75rem; box-shadow: 0 6px 18px rgba(0,0,0,0.08); display:flex; flex-direction:column; gap:.35rem; cursor:pointer; }
+    .needs-badge { position: absolute; right: .4rem; top: .4rem; background:#ef4444; color:white; font-size: .75rem; padding: .12rem .38rem; border-bottom-left-radius:.35rem; }
+    .player-meta { font-size: .78rem; color:#4b5563; }
+    .lineup-slot { min-height:110px; border:2px dashed #e5e7eb; border-radius:.5rem; padding:.5rem; display:flex; flex-wrap:wrap; gap:.5rem; align-content:flex-start; justify-content:center; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col">
+
+  <header class="bg-black text-white py-4 shadow-md flex flex-col items-center">
+    <h1 class="text-2xl font-extrabold">🏈 Chesterfield Chargers</h1>
+    <div class="text-yellow-300 font-semibold">Play Tracker</div>
+  </header>
+
+  <main class="flex-1 p-5 max-w-6xl mx-auto w-full">
+    <!-- lineup buttons -->
+    <section id="lineupButtonsWrap" class="mb-4 flex flex-wrap gap-2 justify-center"></section>
+
+    <!-- controls -->
+    <section class="mb-4 flex flex-wrap gap-2 justify-center items-center">
+      <button id="logPlayBtn" class="btn-base bg-black text-white" onclick="logPlay()">Log Play</button>
+      <button class="btn-base bg-gray-200 text-gray-800" onclick="resetHalf()">Reset Half</button>
+      <button class="btn-base bg-gray-200 text-gray-800" onclick="repeatLast()">Repeat Last</button>
+      <button class="btn-base bg-gray-200 text-gray-800" onclick="markOut()">Out</button>
+      <button class="btn-base bg-gray-200 text-gray-800" onclick="clearSelections()">Clear</button>
+
+      <label class="flex items-center gap-2 ml-2">
+        <input id="toggleNeeds" type="checkbox" onchange="render()" class="h-4 w-4 accent-yellow-400">
+        <span class="text-sm font-medium text-gray-700">Show Needs</span>
+      </label>
+    </section>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- Roster -->
+      <div class="lg:col-span-2">
+        <h2 class="text-xl font-bold mb-3">Roster</h2>
+        <div id="roster" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
+      </div>
+
+      <!-- Needs tracker & lineup editor -->
+      <aside>
+        <div id="needsContainer" class="hidden bg-white rounded-xl shadow p-4 mb-4">
+          <h3 class="font-bold mb-2">Needs Tracker</h3>
+          <div id="needsTracker" class="text-sm space-y-2"></div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow p-4">
+          <h3 class="font-bold mb-2">Lineup Editor</h3>
+          <select id="lineupSelect" class="w-full border p-2 rounded mb-3" onchange="loadEditor()"></select>
+          <div id="editorPlayers" class="h-56 overflow-auto grid grid-cols-1 gap-2 mb-3"></div>
+          <div class="flex gap-2">
+            <input id="newLineupName" placeholder="New lineup name" class="border p-2 rounded flex-1" />
+            <button class="btn-base bg-yellow-400 text-black" onclick="addNewLineup()">Add</button>
+            <button class="btn-base bg-black text-white" onclick="saveLineup()">Save</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- lineup visual -->
+    <section class="mt-6 bg-white rounded-xl shadow p-4">
+      <h3 class="font-bold mb-3">Selected Lineup (visual)</h3>
+      <div id="lineupVisual" class="lineup-slot"></div>
+      <div class="text-sm text-gray-600 mt-2">Green = in lineup • Yellow = selected manually • Gray = OUT • Red badge = plays+sits needed</div>
+    </section>
+  </main>
+
+<script>
+/* ------------------------
+   Data (roster + defaults)
+   ------------------------ */
+const players = [
+  {id:0, number:0, name:"Dominic Simmons", plays:0, sits:0, selected:false, out:false},
+  {id:1, number:1, name:"Jacob Moskwa", plays:0, sits:0, selected:false, out:false},
+  {id:2, number:2, name:"Austin Stevenson", plays:0, sits:0, selected:false, out:false},
+  {id:3, number:3, name:"Charlie Licavoli", plays:0, sits:0, selected:false, out:false},
+  {id:4, number:4, name:"Brayden Abuan", plays:0, sits:0, selected:false, out:false},
+  {id:5, number:5, name:"Ethan Rots", plays:0, sits:0, selected:false, out:false},
+  {id:6, number:6, name:"Ian Meadows", plays:0, sits:0, selected:false, out:false},
+  {id:7, number:7, name:"Parker Carrico", plays:0, sits:0, selected:false, out:false},
+  {id:8, number:8, name:"William Ferlecki", plays:0, sits:0, selected:false, out:false},
+  {id:9, number:9, name:"Drew Licavoli", plays:0, sits:0, selected:false, out:false},
+  {id:10, number:10, name:"Angelo Alfonsi", plays:0, sits:0, selected:false, out:false},
+  {id:11, number:11, name:"Jacob Rots", plays:0, sits:0, selected:false, out:false},
+  {id:12, number:12, name:"Landon Wenner", plays:0, sits:0, selected:false, out:false},
+  {id:14, number:14, name:"Andi Kraja", plays:0, sits:0, selected:false, out:false},
+  {id:15, number:15, name:"Carter Swanigan", plays:0, sits:0, selected:false, out:false},
+  {id:17, number:17, name:"Callen Ludwig", plays:0, sits:0, selected:false, out:false},
+  {id:18, number:18, name:"Michael Poley", plays:0, sits:0, selected:false, out:false},
+  {id:19, number:19, name:"Graham DeFoor", plays:0, sits:0, selected:false, out:false},
+  {id:21, number:21, name:"Brady Verstraete", plays:0, sits:0, selected:false, out:false},
+  {id:23, number:23, name:"Alexander Lada", plays:0, sits:0, selected:false, out:false},
+  {id:24, number:24, name:"Clinton Craib", plays:0, sits:0, selected:false, out:false},
+  {id:27, number:27, name:"Carter Stone", plays:0, sits:0, selected:false, out:false},
+  {id:28, number:28, name:"Donavan Williams", plays:0, sits:0, selected:false, out:false},
+  {id:44, number:44, name:"Brandon Bielby", plays:0, sits:0, selected:false, out:false},
+  {id:47, number:47, name:"Joseph Baskin", plays:0, sits:0, selected:false, out:false},
+  {id:77, number:77, name:"Cortez McCloud", plays:0, sits:0, selected:false, out:false},
+  {id:95, number:95, name:"Grant Elliott", plays:0, sits:0, selected:false, out:false},
+  {id:99, number:99, name:"Mason Stankowski", plays:0, sits:0, selected:false, out:false}
+];
+
+const defaultLineups = {
+  "Black Defense": [0,1,2,3,4,5,6,7,8,9,10],
+  "Black Spread": [4,5,6,7,8,9,10,11,12,14,15],
+  "Black Power": [15,17,18,19,21,23,24,27,28,44],
+  "Gold Pro": [0,2,4,6,8,10,12,14,15,17,19],
+  "Gold Spread": [1,3,5,7,9,11,12,18,21,23,24],
+  "Kickoff": [0,4,6,8,10,12,14,17,19,21,23],
+  "Kick Return": [1,5,7,9,11,15,18,24,27,28,44]
+};
+
+let lineups = JSON.parse(localStorage.getItem("lineups")) || defaultLineups;
+let lastLineup = null;
+let selectedPlayerIds = [];
+
+/* ------------------------
+   Utilities
+   ------------------------ */
+function saveLineupsToStorage(){
+  localStorage.setItem("lineups", JSON.stringify(lineups));
+}
+
+function syncSelectedIds(){
+  selectedPlayerIds = players.filter(p => p.selected).map(p => p.id);
+}
+
+/* ------------------------
+   Render
+   ------------------------ */
+function render(){
+  const rosterDiv = document.getElementById("roster");
+  const lineupVisual = document.getElementById("lineupVisual");
+  const lineupButtonsWrap = document.getElementById("lineupButtonsWrap");
+  const showNeeds = document.getElementById("toggleNeeds").checked;
+  document.getElementById("needsContainer").style.display = showNeeds ? "block" : "none";
+
+  // roster
+  rosterDiv.innerHTML = "";
+  players.forEach(p=>{
+    const needsPlays = Math.max(0, 4 - p.plays);
+    const needsSits  = Math.max(0, 4 - p.sits);
+    const totalNeeds = needsPlays + needsSits;
+
+    // compute classes
+    let bgClass = "bg-white";
+    if(p.out) bgClass = "bg-gray-300 text-gray-600";
+    else if(p.selected) bgClass = "bg-yellow-200";
+    else if(p.plays>=4 && p.sits>=4) bgClass = "bg-emerald-200";
+    else bgClass = "bg-red-50";
+
+    const card = document.createElement("div");
+    card.className = `card ${bgClass} relative`;
+    card.innerHTML = `<div class="text-sm font-semibold">#${p.number} ${p.name}</div>
+                      <div class="player-meta">Plays: ${p.plays} | Sits: ${p.sits}</div>`;
+
+    if(totalNeeds > 0){
+      const badge = document.createElement("div");
+      badge.className = "needs-badge";
+      badge.textContent = `⚡${totalNeeds}`;
+      card.appendChild(badge);
+    }
+
+    card.onclick = () => {
+      if(!p.out){
+        p.selected = !p.selected;
+        syncSelectedIds();
+      } else {
+        // if clicking an OUT player we still select their id for "Out" actions (preserve old behavior)
+        selectedPlayerIds = [p.id];
+      }
+      render();
+    };
+
+    rosterDiv.appendChild(card);
+  });
+
+  // lineup visual
+  lineupVisual.innerHTML = "";
+  // if lastLineup exists, get that lineup array; otherwise show none
+  const showLineupArray = lastLineup && lineups[lastLineup] ? lineups[lastLineup] : [];
+
+  // render lineup players first (in order if lineup exists)
+  if(showLineupArray.length > 0){
+    showLineupArray.forEach(id => {
+      const p = players.find(x => x.id === id);
+      if(!p) return;
+      const needsPlays = Math.max(0, 4 - p.plays);
+      const needsSits  = Math.max(0, 4 - p.sits);
+      const totalNeeds = needsPlays + needsSits;
+
+      const card = document.createElement("div");
+      // highlight color: in lineup -> green; but if also selected -> yellow; out -> gray
+      let cls = "card";
+      if(p.out) cls += " bg-gray-300 text-gray-600";
+      else if(p.selected) cls += " bg-yellow-200";
+      else cls += " bg-emerald-200";
+
+      card.className = cls + " relative";
+      card.innerHTML = `<div class="text-sm font-semibold">#${p.number} ${p.name}</div>
+                        <div class="player-meta">Plays: ${p.plays} | Sits: ${p.sits}</div>`;
+
+      if(totalNeeds > 0){
+        const badge = document.createElement("div");
+        badge.className = "needs-badge";
+        badge.textContent = `⚡${totalNeeds}`;
+        card.appendChild(badge);
+      }
+      lineupVisual.appendChild(card);
+    });
+  } else {
+    // if no lastLineup selected show the current selected players instead (preserve UX)
+    const selected = players.filter(p => p.selected);
+    if(selected.length){
+      selected.forEach(p=>{
+        const totalNeeds = Math.max(0,4-p.plays) + Math.max(0,4-p.sits);
+        const card = document.createElement("div");
+        card.className = `card ${p.out ? 'bg-gray-300 text-gray-600' : 'bg-yellow-200'} relative`;
+        card.innerHTML = `<div class="text-sm font-semibold">#${p.number} ${p.name}</div>
+                          <div class="player-meta">Plays: ${p.plays} | Sits: ${p.sits}</div>`;
+        if(totalNeeds>0){
+          const badge = document.createElement("div");
+          badge.className = "needs-badge";
+          badge.textContent = `⚡${totalNeeds}`;
+          card.appendChild(badge);
+        }
+        lineupVisual.appendChild(card);
+      });
+    } else {
+      lineupVisual.innerHTML = `<div class="text-sm text-gray-500 w-full text-center py-6">Select a lineup or players to preview here</div>`;
+    }
+  }
+
+  // lineup buttons (show active)
+  lineupButtonsWrap.innerHTML = "";
+  Object.keys(lineups).forEach(name=>{
+    const btn = document.createElement("button");
+    btn.className = "btn-base";
+    // style active
+    if(name === lastLineup){
+      btn.style.background = "#FFD700";
+      btn.style.color = "#000";
+    } else {
+      btn.style.background = "#000";
+      btn.style.color = "#fff";
+    }
+    btn.textContent = name;
+    btn.onclick = () => selectLineup(name);
+    lineupButtonsWrap.appendChild(btn);
+  });
+
+  // Log Play button state
+  const activeCount = players.filter(p => p.selected && !p.out).length;
+  const logBtn = document.getElementById("logPlayBtn");
+  if(activeCount === 11){
+    logBtn.style.background = "#16a34a"; // green
+    logBtn.style.color = "#fff";
+    logBtn.disabled = false;
+  } else {
+    logBtn.style.background = "#000";
+    logBtn.style.color = "#fff";
+    logBtn.disabled = (activeCount === 0);
+  }
+
+  // Needs list (detailed)
+  const needsTracker = document.getElementById("needsTracker");
+  needsTracker.innerHTML = "";
+  players
+    .filter(p => !p.out && (p.plays < 4 || p.sits < 4))
+    .map(p => ({...p, needsPlays: Math.max(0,4-p.plays), needsSits: Math.max(0,4-p.sits)}))
+    .sort((a,b) => (b.needsPlays - a.needsPlays) || (b.needsSits - a.needsSits))
+    .forEach(p=>{
+      const row = document.createElement('div');
+      row.textContent = `#${p.number} ${p.name} — Plays: ${p.plays} (needs ${Math.max(0,4-p.plays)}), Sits: ${p.sits} (needs ${Math.max(0,4-p.sits)})`;
+      needsTracker.appendChild(row);
+    });
+
+  // lineup editor dropdown update (but don't change selection here)
+  populateLineupSelect();
+}
+
+/* ------------------------
+   Actions (same logic as your original code)
+   ------------------------ */
+function selectLineup(name){
+  lastLineup = name;
+  // set selected flags to reflect lineup (but don't select players who are out)
+  players.forEach(p => p.selected = !p.out && (lineups[name] || []).includes(p.id));
+  syncSelectedIds();
+  render();
+  loadEditor();
+}
+
+function logPlay(){
+  players.forEach(p=>{
+    if(!p.out){
+      if(p.selected && p.plays < 4) p.plays++;
+      if(!p.selected && p.sits < 4) p.sits++;
+    }
+  });
+  render();
+}
+
+function resetHalf(){
+  if(!confirm("Reset half? This will zero plays and sits and clear 'out' flags.")) return;
+  players.forEach(p => { p.plays = 0; p.sits = 0; p.out = false; p.selected = false; });
+  selectedPlayerIds = [];
+  lastLineup = null;
+  render();
+  loadEditor();
+}
+
+function repeatLast(){
+  if(lastLineup) selectLineup(lastLineup);
+}
+
+function markOut(){
+  // toggle out for selected IDs
+  syncSelectedIds();
+  selectedPlayerIds.forEach(id=>{
+    const p = players.find(pl => pl.id === id);
+    if(p){
+      p.out = !p.out;
+      if(p.out) p.selected = false;
+    }
+  });
+  selectedPlayerIds = [];
+  render();
+  loadEditor();
+}
+
+function clearSelections(){
+  players.forEach(p => p.selected = false);
+  selectedPlayerIds = [];
+  render();
+}
+
+/* ------------------------
+   Lineup editor (persist changes)
+   ------------------------ */
+function populateLineupSelect(){
+  const sel = document.getElementById("lineupSelect");
+  const prev = sel.value;
+  sel.innerHTML = "";
+  Object.keys(lineups).forEach(name=>{
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  });
+  // keep previous selection or set to lastLineup
+  if(prev && Array.from(sel.options).some(o=>o.value===prev)) sel.value = prev;
+  else if(lastLineup && Array.from(sel.options).some(o=>o.value===lastLineup)) sel.value = lastLineup;
+  else sel.selectedIndex = 0;
+}
+
+/* load editor UI (checkboxes) */
+function loadEditor(){
+  populateLineupSelect();
+  const name = document.getElementById("lineupSelect").value;
+  if(!name) return;
+  const container = document.getElementById("editorPlayers");
+  container.innerHTML = "";
+  // ensure currentLineup is synced if name === lastLineup
+  Object.values(players).forEach((p)=>{ /* noop, no change here */ });
+
+  players.forEach((p, idx) => {
+    const row = document.createElement("div");
+    row.className = "flex items-center gap-2";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = (lineups[name] || []).includes(p.id);
+    // disable editing of OUT players (you can change this behavior if you prefer)
+    cb.disabled = !!p.out;
+    cb.onchange = () => {
+      togglePlayerInLineup(name, p.id, cb.checked);
+    };
+    const label = document.createElement("label");
+    label.textContent = `#${p.number} ${p.name}${p.out ? ' (OUT)' : ''}`;
+    label.className = p.out ? 'text-gray-500' : '';
+    row.appendChild(cb);
+    row.appendChild(label);
+    container.appendChild(row);
+  });
+}
+
+/* Toggle directly from editor; saves immediately */
+function togglePlayerInLineup(name, id, checked){
+  if(!lineups[name]) lineups[name] = [];
+  const arr = lineups[name];
+  if(checked && !arr.includes(id)){
+    arr.push(id);
+  }
+  if(!checked && arr.includes(id)){
+    lineups[name] = arr.filter(x => x !== id);
+  }
+  saveLineupsToStorage();
+}
+
+/* Create new lineup */
+function addNewLineup(){
+  const name = document.getElementById("newLineupName").value.trim();
+  if(!name) return alert("Enter a lineup name first");
+  if(lineups[name]) return alert("A lineup with that name already exists");
+  lineups[name] = [];
+  saveLineupsToStorage();
+  document.getElementById("newLineupName").value = "";
+  populateLineupSelect();
+  document.getElementById("lineupSelect").value = name;
+  loadEditor();
+}
+
+/* Save lineup from editor checkboxes (explicit Save button) */
+function saveLineup(){
+  const name = document.getElementById("lineupSelect").value;
+  if(!name) return;
+  const cbs = Array.from(document.querySelectorAll("#editorPlayers input[type=checkbox]"));
+  lineups[name] = [];
+  cbs.forEach((cb, i) => {
+    if(cb.checked){
+      const id = players[i].id;
+      lineups[name].push(id);
+    }
+  });
+  saveLineupsToStorage();
+  lastLineup = name;
+  alert(`Lineup "${name}" saved.`);
+  render();
+}
+
+/* ------------------------
+   Initial load
+   ------------------------ */
+(function init(){
+  // populate lineup UI and ensure storage is used
+  populateLineupSelect();
+  // set lastLineup to first lineup if none selected
+  if(!lastLineup) lastLineup = Object.keys(lineups)[0] || null;
+  // initial render + editor load
+  render();
+  loadEditor();
+})();
+</script>
+</body>
+</html>
